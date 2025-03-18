@@ -10,6 +10,8 @@ type CliArguments =
     | [<AltCommandLine("-l")>] Language of language: string
     | [<AltCommandLine("-k")>] ApiKey of key: string
     | First of count: int
+    | Set_Need_Translation
+    | Clear_Need_Translation
 
     interface IArgParserTemplate with
         member s.Usage =
@@ -20,6 +22,8 @@ type CliArguments =
             | Language _ -> "Language to which translate file"
             | ApiKey _ -> "API key for Google Translate"
             | First _ -> "Limit translation to only first non-translated entries"
+            | Set_Need_Translation -> "Set all entries in the resulting file as need translation"
+            | Clear_Need_Translation -> "Clear need translation flag for all entries in the resulting file"
 
 
 let rec confirm (title: string) =
@@ -44,6 +48,107 @@ let createTranslator key targetLanguage =
     let translator = fun (key: string) -> client.TranslateText(key, targetLanguage).TranslatedText
     translator
 
+let automaticallyTranslate (catalog: POCatalog) key targetLanguage firstNumbers =
+    catalog.Language <- targetLanguage
+    let translator = createTranslator key targetLanguage
+    let items = catalog |> Seq.filter (fun x -> x[0] |> String.IsNullOrEmpty)
+    let items =
+        if Option.isSome firstNumbers then 
+            items |> Seq.take (firstNumbers.Value) 
+        else
+            items
+    for item in items do
+        try
+            match item with
+            | :? POSingularEntry as pse ->
+                let translation = translator item.Key.Id
+                pse.Translation <- translation
+                let flagComment = 
+                    match pse.Comments |> Seq.tryFind (fun c -> c.Kind = POCommentKind.Flags) with
+                    | Some comment -> 
+                        comment :?> POFlagsComment
+                    | None ->
+                        let newComment = POFlagsComment()
+                        newComment.Flags <- System.Collections.Generic.HashSet()
+                        pse.Comments.Add(newComment)
+                        newComment
+                flagComment.Flags.Add("fuzzy") |> ignore
+            | _ -> 
+                printfn "Only singular entries are supported. Key %s skipped." item.Key.Id
+                ()
+        with
+            | ex -> 
+                printfn "Error translating key %s: %s" item.Key.Id ex.Message
+
+let writePOCatalog (fileName: string) catalog =
+    let generator = POGenerator()
+    use writer = new System.IO.StreamWriter(fileName)
+    generator.Generate(writer, catalog)
+
+let setNeedTranslation (catalog: POCatalog) =
+    for item in catalog do
+        match item with
+        | :? POSingularEntry as pse ->
+            let flagComment = 
+                match pse.Comments |> Seq.tryFind (fun c -> c.Kind = POCommentKind.Flags) with
+                | Some comment -> 
+                    comment :?> POFlagsComment
+                | None ->
+                    let newComment = POFlagsComment()
+                    newComment.Flags <- System.Collections.Generic.HashSet()
+                    pse.Comments.Add(newComment)
+                    newComment
+            flagComment.Flags.Add("fuzzy") |> ignore
+        | :? POPluralEntry as ppe ->
+            let flagComment = 
+                match ppe.Comments |> Seq.tryFind (fun c -> c.Kind = POCommentKind.Flags) with
+                | Some comment -> 
+                    comment :?> POFlagsComment
+                | None ->
+                    let newComment = POFlagsComment()
+                    newComment.Flags <- System.Collections.Generic.HashSet()
+                    ppe.Comments.Add(newComment)
+                    newComment
+            flagComment.Flags.Add("fuzzy") |> ignore
+        | _ -> 
+            printfn "Only singular and plural entries are supported. Key %s skipped." item.Key.Id
+            ()
+    catalog
+
+let clearNeedTranslation (catalog: POCatalog) =
+    for item in catalog do
+        match item with
+        | :? POSingularEntry as pse ->
+            match pse.Comments |> Seq.tryFind (fun c -> c.Kind = POCommentKind.Flags) with
+            | Some comment -> 
+                (comment :?> POFlagsComment).Flags.Remove("fuzzy") |> ignore
+            | None ->
+                ()
+        | :? POPluralEntry as ppe ->
+            match ppe.Comments |> Seq.tryFind (fun c -> c.Kind = POCommentKind.Flags) with
+            | Some comment -> 
+                (comment :?> POFlagsComment).Flags.Remove("fuzzy") |> ignore
+            | None ->
+                ()
+        | _ -> 
+            printfn "Only singular and plural entries are supported. Key %s skipped." item.Key.Id
+            ()
+    catalog
+
+let generateTranslation sourceFileName (catalog: POCatalog) (results: ParseResults<CliArguments>) =
+    let outputFileName = if results.Contains(CliArguments.Output) then results.GetResult(CliArguments.Output) else sourceFileName
+    printfn "Parsed %d entries" catalog.Count
+    let targetLanguage = results.GetResult(CliArguments.Language)
+    let key = results.GetResult(CliArguments.ApiKey)
+    printfn "Source language %s. Translating to %s" catalog.Language targetLanguage
+    catalog |> Seq.sumBy (fun item -> item.Key.Id.Length) |> printfn "Approximate count of characters to be translated: %d"
+    if confirm "Please confirm that you want to proceed with translation" then
+        let firstNumbers = if results.Contains(CliArguments.First) then Some (results.GetResult(CliArguments.First)) else None
+        automaticallyTranslate catalog key targetLanguage firstNumbers
+        writePOCatalog outputFileName catalog
+    
+
+
 [<EntryPoint>]
 let main argv =
     let errorHandler = ProcessExiter(colorizer = function ErrorCode.HelpText -> None | _ -> Some ConsoleColor.Red)
@@ -51,52 +156,19 @@ let main argv =
     let results = parser.ParseCommandLine (inputs=argv, ignoreUnrecognized = true)
 
     let sourceFileName = results.GetResult(CliArguments.Source)
-    let outputFileName = if results.Contains(CliArguments.Output) then results.GetResult(CliArguments.Output) else sourceFileName
 
     do
         let result = parseCatalog sourceFileName
         if result.Success then
             let catalog = result.Catalog
-            printfn "Parsed %d entries" catalog.Count
-            let targetLanguage = results.GetResult(CliArguments.Language)
-            let key = results.GetResult(CliArguments.ApiKey)
-            printfn "Source language %s. Translating to %s" catalog.Language targetLanguage
-            let catalog = result.Catalog
-            catalog |> Seq.sumBy (fun item -> item.Key.Id.Length) |> printfn "Approximate count of characters to be translated: %d"
-            if confirm "Please confirm that you want to proceed with translation" then
-                catalog.Language <- targetLanguage
-                let translator = createTranslator key targetLanguage
-                let items = catalog |> Seq.filter (fun x -> x[0] |> String.IsNullOrEmpty)
-                let items =
-                    if results.Contains(CliArguments.First) then 
-                        items |> Seq.take (results.GetResult(CliArguments.First)) 
-                    else
-                        items
-                for item in items do
-                    try
-                        match item with
-                        | :? POSingularEntry as pse ->
-                            let translation = translator item.Key.Id
-                            pse.Translation <- translation
-                            let flagComment = 
-                                match pse.Comments |> Seq.tryFind (fun c -> c.Kind = POCommentKind.Flags) with
-                                | Some comment -> 
-                                    comment :?> POFlagsComment
-                                | None ->
-                                    let newComment = POFlagsComment()
-                                    newComment.Flags <- System.Collections.Generic.HashSet()
-                                    pse.Comments.Add(newComment)
-                                    newComment
-                            flagComment.Flags.Add("fuzzy") |> ignore
-                        | _ -> 
-                            printfn "Only singular entries are supported. Key %s skipped." item.Key.Id
-                            ()
-                    with
-                        | ex -> 
-                            printfn "Error translating key %s: %s" item.Key.Id ex.Message
-                let generator = POGenerator()
-                use writer = new System.IO.StreamWriter(outputFileName)
-                generator.Generate(writer, catalog)
+            if results.Contains(CliArguments.Set_Need_Translation) then
+                setNeedTranslation catalog
+                    |> writePOCatalog sourceFileName
+            else if results.Contains(CliArguments.Clear_Need_Translation) then
+                clearNeedTranslation catalog
+                    |> writePOCatalog sourceFileName
+            else
+                generateTranslation sourceFileName catalog results
         else
             let diagnostics = result.Diagnostics
             for diagnostic in diagnostics do
