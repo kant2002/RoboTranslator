@@ -39,7 +39,7 @@ let rec private populateNode (node: JsonNode) (key: string) (catalog: POCatalog)
 
 let processCli argv =
     let errorHandler = ProcessExiter(colorizer = function ErrorCode.HelpText -> None | _ -> Some ConsoleColor.Red)
-    let parser = ArgumentParser.Create<JsonConversionCliArguments>(programName = "robotranslator", errorHandler = errorHandler)
+    let parser = ArgumentParser.Create<JsonConversionCliArguments>(programName = "robotranslator fromjson", errorHandler = errorHandler)
     let results = parser.ParseCommandLine (inputs=argv, ignoreUnrecognized = true)
     let sourceFileName = results.GetResult(JsonConversionCliArguments.Source)
     let root = JsonNode.Parse(File.ReadAllText(sourceFileName))
