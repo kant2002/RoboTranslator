@@ -135,7 +135,6 @@ type MyForm() as this =
     do
         this.ClientSize <- Size(600, 400)
         this.Title <- "Robo Translator"
-
         let grid = new GridView<Translation>()
         grid.ShowHeader <- true
         let createSimpleColumn (column: string) header =
@@ -148,7 +147,28 @@ type MyForm() as this =
             c
         grid.Columns.Add(createSimpleColumn "Source" "Source - English")
         grid.Columns.Add(createSimpleColumn "Translation" "Translation")
-        this.Content <- grid
+
+        let commentTextBox = new TextArea(Width = 200)
+        let infoPanelHeader = new Label(Text = "Information Panel", TextAlignment = TextAlignment.Center)
+        let informationPanel = new StackLayout(
+            Orientation = Orientation.Vertical
+            //MinimumSize = new Size(200, 0)
+        )
+        [
+            infoPanelHeader :> Control;
+            commentTextBox
+        ] |> Seq.iter (fun control -> informationPanel.Items.Add(StackLayoutItem(control, false))) |> ignore
+
+        let layout = 
+            new StackLayout(
+                Orientation = Orientation.Horizontal
+            )
+        layout.Items.Add(StackLayoutItem(grid, Expand = true))
+        layout.Items.Add(StackLayoutItem(informationPanel, false))
+        layout.VerticalContentAlignment <- VerticalAlignment.Stretch
+        //informationPanel.Add(infoPanelHeader, 0, 0)
+        
+        this.Content <- layout
         
         // Set data context so it propegates to all child controls
         this.DataContext <- MyObject(TextProperty = "Initial Value 1")
