@@ -2,6 +2,7 @@
 open Argu
 open System
 open Google.Cloud.Translation.V2
+open Shared
 
 type CliArguments =
     | [<AltCommandLine("-v")>] Verbose
@@ -80,11 +81,6 @@ let automaticallyTranslate (catalog: POCatalog) key targetLanguage firstNumbers 
             | ex -> 
                 printfn "Error translating key %s: %s" item.Key.Id ex.Message
 
-let writePOCatalog (fileName: string) catalog =
-    let generator = POGenerator()
-    use writer = new System.IO.StreamWriter(fileName)
-    generator.Generate(writer, catalog)
-
 let setNeedTranslation (catalog: POCatalog) =
     for item in catalog do
         match item with
@@ -152,6 +148,11 @@ let generateTranslation sourceFileName (catalog: POCatalog) (results: ParseResul
 [<EntryPoint>]
 let main argv =
     let errorHandler = ProcessExiter(colorizer = function ErrorCode.HelpText -> None | _ -> Some ConsoleColor.Red)
+    if argv.Length > 0 && argv[0] = "fromjson" then
+        JsonConversion.processCli (argv |> Array.skip 1)
+        Environment.Exit(0)
+    
+    // Regular PO file processing
     let parser = ArgumentParser.Create<CliArguments>(programName = "robotranslator", errorHandler = errorHandler)
     let results = parser.ParseCommandLine (inputs=argv, ignoreUnrecognized = true)
 
