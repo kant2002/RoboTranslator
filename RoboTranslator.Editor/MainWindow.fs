@@ -14,9 +14,20 @@ type MainWindow() as this =
     let openItem = new MenuItem("Open")
     let saveItem = new MenuItem("Save")
 
+    let toolbar = new Toolbar()
+    let togglePanelButton = new ToggleToolButton(Gtk.Stock.GoDown)
     let scroll = new ScrolledWindow()
     let treeView = new TreeView()
     let listStore = new ListStore(typeof<string>, typeof<string>)
+
+    // Bottom panel
+    let bottomPanel = new EventBox()
+    let bottomPanelHeight = 100
+
+    // Split panel and text boxes
+    let hpaned = new HPaned()
+    let sourceTextView = new TextView()
+    let translationTextView = new TextView()
 
     do
         this.SetDefaultSize(800, 600)
@@ -30,17 +41,19 @@ type MainWindow() as this =
         menubar.Append(file)
         vbox.PackStart(menubar, false, false, 0u)
 
+        // Toolbar
+        toolbar.ToolbarStyle <- ToolbarStyle.Icons
+        
+        toolbar.Insert(togglePanelButton, -1)
+        vbox.PackStart(toolbar, false, false, 0u)
+
         // TreeView
         treeView.Model <- listStore
-
-        //treeView.FixedHeightMode <- true
-        //treeView.RowHeight <- 24
 
         let appendColumn title colIndex editable resiziable =
             let renderer = new CellRendererText()
             renderer.Height <- 24
             renderer.Ellipsize <- Pango.EllipsizeMode.End
-            //renderer.WrapMode <- Pango.WrapMode.None
             let col = new TreeViewColumn(title, renderer)
             col.Resizable <- resiziable
             if editable then
@@ -61,6 +74,23 @@ type MainWindow() as this =
 
         scroll.Add(treeView)
         vbox.PackStart(scroll, true, true, 0u)
+
+        // Bottom panel setup (now with split and text boxes)
+        hpaned.Pack1(sourceTextView, true, true)
+        hpaned.Pack2(translationTextView, true, false)
+        bottomPanel.Add(hpaned)
+        bottomPanel.Visible <- false
+        vbox.PackStart(bottomPanel, true, true, uint32 bottomPanelHeight)
+
+        // Toggle button setup
+        togglePanelButton.Active <- true
+        togglePanelButton.Toggled.Add(fun _ ->
+            bottomPanel.Visible <- togglePanelButton.Active
+            if togglePanelButton.Active then
+                togglePanelButton.Label <- "Hide Panel"
+            else
+                togglePanelButton.Label <- "Show Panel"
+        )
 
         // Events
         openItem.Activated.Add(fun _ ->
@@ -102,3 +132,4 @@ type MainWindow() as this =
                 writePOCatalog dialog.Filename data.Catalog
             dialog.Destroy()
         )
+
