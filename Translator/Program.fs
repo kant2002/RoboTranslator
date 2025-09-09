@@ -137,7 +137,9 @@ let generateTranslation sourceFileName (catalog: POCatalog) (results: ParseResul
     let targetLanguage = results.GetResult(CliArguments.Language)
     let key = results.GetResult(CliArguments.ApiKey)
     printfn "Source language %s. Translating to %s" catalog.Language targetLanguage
-    catalog |> Seq.sumBy (fun item -> item.Key.Id.Length) |> printfn "Approximate count of characters to be translated: %d"
+    let freeTier = 500_000
+    let translatedCharacters = catalog |> Seq.sumBy (fun item -> item.Key.Id.Length)
+    printfn "Approximate count of characters to be translated: %d, Free tier as of Sep 2025 is %d characters per month" translatedCharacters freeTier
     if confirm "Please confirm that you want to proceed with translation" then
         let firstNumbers = if results.Contains(CliArguments.First) then Some (results.GetResult(CliArguments.First)) else None
         automaticallyTranslate catalog key targetLanguage firstNumbers
